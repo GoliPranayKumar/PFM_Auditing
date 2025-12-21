@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Audit Agent - Fraud Detection System</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <!-- Background gradient overlay -->
+    <div class="background-gradient"></div>
+
+    <!-- Main container -->
+    <div class="container">
+        <!-- Header Section -->
+        <header class="header">
+            <div class="logo-section">
+                <div class="logo-icon">
+                    <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M20 4L4 12L20 20L36 12L20 4Z" stroke="url(#gradient)" stroke-width="2"
+                            stroke-linecap="round" stroke-linejoin="round" />
+                        <path d="M4 28L20 36L36 28" stroke="url(#gradient)" stroke-width="2" stroke-linecap="round"
+                            stroke-linejoin="round" />
+                        <path d="M4 20L20 28L36 20" stroke="url(#gradient)" stroke-width="2" stroke-linecap="round"
+                            stroke-linejoin="round" />
+                        <defs>
+                            <linearGradient id="gradient" x1="4" y1="4" x2="36" y2="36" gradientUnits="userSpaceOnUse">
+                                <stop stop-color="#A0A0A0" />
+                                <stop offset="1" stop-color="#E0E0E0" />
+                            </linearGradient>
+                        </defs>
+                    </svg>
+                </div>
+                <div class="title-group">
+                    <h1 class="title">AI Audit Agent</h1>
+                    <p class="subtitle">Detecting Fraud, Waste & Abuse in Public Expenditure</p>
+                </div>
+            </div>
+        </header>
+
+        <!-- Upload Section -->
+        <section class="upload-section" id="uploadSection">
+            <div class="glass-card upload-card">
+                <h2 class="card-title">Upload Document for Analysis</h2>
+                <p class="card-description">Upload financial documents (PDF, DOCX, TXT) for AI-powered fraud detection
+                </p>
+
+                <!-- Drag & Drop Zone -->
+                <div class="dropzone" id="dropzone">
+                    <div class="dropzone-content">
+                        <svg class="upload-icon" width="64" height="64" viewBox="0 0 64 64" fill="none">
+                            <path d="M32 16V48M32 16L20 28M32 16L44 28" stroke="currentColor" stroke-width="3"
+                                stroke-linecap="round" stroke-linejoin="round" />
+                            <path d="M8 40V52C8 54.2091 9.79086 56 12 56H52C54.2091 56 56 54.2091 56 52V40"
+                                stroke="currentColor" stroke-width="3" stroke-linecap="round" />
+                        </svg>
+                        <p class="dropzone-text">Drag & drop your document</p>
+                        <p class="dropzone-subtext">or click to browse</p>
+                        <p class="dropzone-formats">Supports: PDF, DOCX, TXT (Max 10MB)</p>
+                    </div>
+                    <input type="file" id="fileInput" accept=".pdf,.docx,.txt" hidden>
+                </div>
+
+                <!-- Selected File Display -->
+                <div class="selected-file" id="selectedFile" style="display: none;">
+                    <div class="file-info">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                            <path
+                                d="M14 2H6C5.46957 2 4.96086 2.21071 4.58579 2.58579C4.21071 2.96086 4 3.46957 4 4V20C4 20.5304 4.21071 21.0391 4.58579 21.4142C4.96086 21.7893 5.46957 22 6 22H18C18.5304 22 19.0391 21.7893 19.4142 21.4142C19.7893 21.0391 20 20.5304 20 20V8L14 2Z"
+                                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                            <path d="M14 2V8H20" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                stroke-linejoin="round" />
+                        </svg>
+                        <div class="file-details">
+                            <p class="file-name" id="fileName"></p>
+                            <p class="file-size" id="fileSize"></p>
+                        </div>
+                    </div>
+                    <button class="remove-file-btn" id="removeFileBtn">
+                        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                            <path d="M15 5L5 15M5 5L15 15" stroke="currentColor" stroke-width="2"
+                                stroke-linecap="round" />
+                        </svg>
+                    </button>
+                </div>
+
+                <!-- Email Input (Optional) -->
+                <div class="input-group">
+                    <label for="emailInput" class="input-label">
+                        <span>Email Report (Optional)</span>
+                        <span class="optional-badge">Optional</span>
+                    </label>
+                    <input type="email" id="emailInput" class="input-field" placeholder="auditor@company.com">
+                </div>
+
+                <!-- Analyze Button -->
+                <button class="primary-btn" id="analyzeBtn" disabled>
+                    <span class="btn-text">Analyze Document</span>
+                    <svg class="btn-icon" width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <path d="M5 10H15M15 10L10 5M15 10L10 15" stroke="currentColor" stroke-width="2"
+                            stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                </button>
+            </div>
+        </section>
+
+        <!-- Loading Section -->
+        <section class="loading-section" id="loadingSection" style="display: none;">
+            <div class="glass-card loading-card">
+                <div class="loader">
+                    <div class="loader-ring"></div>
+                    <div class="loader-ring"></div>
+                    <div class="loader-ring"></div>
+                </div>
+                <h3 class="loading-title">Analyzing Document</h3>
+                <p class="loading-text">Our AI is examining the document for fraud indicators...</p>
+                <div class="loading-steps">
+                    <div class="step active">
+                        <div class="step-dot"></div>
+                        <span class="step-text">Extracting text</span>
+                    </div>
+                    <div class="step">
+                        <div class="step-dot"></div>
+                        <span class="step-text">AI analysis</span>
+                    </div>
+                    <div class="step">
+                        <div class="step-dot"></div>
+                        <span class="step-text">Generating report</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Results Section -->
+        <section class="results-section" id="resultsSection" style="display: none;">
+            <div class="glass-card results-card">
+                <div class="results-header">
+                    <h2 class="results-title">Analysis Complete</h2>
+                    <button class="secondary-btn" id="newAnalysisBtn">
+                        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                            <path
+                                d="M14.25 4.5H3.75M3.75 4.5L7.5 1.5M3.75 4.5L7.5 7.5M3.75 13.5H14.25M14.25 13.5L10.5 10.5M14.25 13.5L10.5 16.5"
+                                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                        <span>New Analysis</span>
+                    </button>
+                </div>
+
+                <!-- Risk Badge -->
+                <div class="risk-container">
+                    <div class="risk-badge" id="riskBadge">
+                        <span class="risk-label">Risk Level</span>
+                        <span class="risk-value" id="riskValue">High</span>
+                    </div>
+                    <div class="risk-stats">
+                        <div class="stat-item">
+                            <span class="stat-label">Flags Detected</span>
+                            <span class="stat-value" id="flagsCount">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Total Flagged Amount</span>
+                            <span class="stat-value" id="flaggedAmount">$0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Summary -->
+                <div class="summary-section">
+                    <h3 class="section-title">Executive Summary</h3>
+                    <p class="summary-text" id="summaryText"></p>
+                </div>
+
+                <!-- Fraud Flags -->
+                <div class="flags-section" id="flagsSection">
+                    <h3 class="section-title">Fraud Indicators</h3>
+                    <div class="flags-list" id="flagsList"></div>
+                </div>
+
+                <!-- Visualizations -->
+                <div class="visualizations-section" id="visualizationsSection" style="display: none;">
+                    <h3 class="section-title">Visual Analysis</h3>
+                    <div class="viz-grid" id="vizGrid"></div>
+                </div>
+
+                <!-- Recommendations -->
+                <div class="recommendations-section" id="recommendationsSection">
+                    <h3 class="section-title">Recommendations</h3>
+                    <ul class="recommendations-list" id="recommendationsList"></ul>
+                </div>
+
+                <!-- Email Status -->
+                <div class="email-status" id="emailStatus" style="display: none;">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <path d="M18 5L8 14L3 9" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                            stroke-linejoin="round" />
+                    </svg>
+                    <span id="emailStatusText"></span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Error Section -->
+        <section class="error-section" id="errorSection" style="display: none;">
+            <div class="glass-card error-card">
+                <svg class="error-icon" width="64" height="64" viewBox="0 0 64 64" fill="none">
+                    <circle cx="32" cy="32" r="28" stroke="currentColor" stroke-width="3" />
+                    <path d="M32 20V36M32 44V44.02" stroke="currentColor" stroke-width="3" stroke-linecap="round" />
+                </svg>
+                <h3 class="error-title">Analysis Failed</h3>
+                <p class="error-text" id="errorText"></p>
+                <button class="secondary-btn" id="retryBtn">
+                    <span>Try Again</span>
+                </button>
+            </div>
+        </section>
+
+        <!-- About Section -->
+        <section class="about-section" id="aboutSection">
+            <div class="about-header">
+                <div class="section-badge">About</div>
+                <h2 class="section-heading">AI-Powered Fraud Detection</h2>
+                <p class="section-subheading">
+                    Leveraging advanced artificial intelligence to protect public funds and ensure accountability
+                </p>
+            </div>
+
+            <div class="about-content">
+                <div class="about-card">
+                    <div class="about-icon">🎯</div>
+                    <h3>Our Mission</h3>
+                    <p>
+                        To revolutionize public financial auditing through cutting-edge AI technology,
+                        detecting fraud, waste, and abuse before they impact taxpayers.
+                    </p>
+                </div>
+
+                <div class="about-card">
+                    <div class="about-icon">⚡</div>
+                    <h3>Powered by Groq</h3>
+                    <p>
+                        Using Groq's lightning-fast LLM infrastructure with Llama 3.3 70B for
+                        real-time analysis that's 10-20x faster than traditional methods.
+                    </p>
+                </div>
+
+                <div class="about-card">
+                    <div class="about-icon">🛡️</div>
+                    <h3>Comprehensive Analysis</h3>
+                    <p>
+                        Our AI examines documents for duplicate payments, inflated costs, missing approvals,
+                        suspicious vendors, and policy violations with expert-level precision.
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Features Section -->
+        <section class="features-section">
+            <h2 class="section-heading">Key Capabilities</h2>
+
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+                            <path d="M16 4L4 10L16 16L28 10L16 4Z" stroke="currentColor" stroke-width="2"
+                                stroke-linecap="round" stroke-linejoin="round" />
+                            <path d="M4 22L16 28L28 22" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                stroke-linejoin="round" />
+                            <path d="M4 16L16 22L28 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                stroke-linejoin="round" />
+                        </svg>
+                    </div>
+                    <h3>Multi-Format Support</h3>
+                    <p>Analyze PDF, DOCX, and TXT documents seamlessly</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+                            <path
+                                d="M16 6C10.48 6 6 10.48 6 16C6 21.52 10.48 26 16 26C21.52 26 26 21.52 26 16C26 10.48 21.52 6 16 6Z"
+                                stroke="currentColor" stroke-width="2" />
+                            <path d="M16 10V16L20 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                        </svg>
+                    </div>
+                    <h3>Real-Time Analysis</h3>
+                    <p>Get instant fraud detection results in seconds</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+                            <rect x="6" y="6" width="20" height="20" rx="2" stroke="currentColor" stroke-width="2" />
+                            <path d="M12 16H20M16 12V20" stroke="currentColor" stroke-width="2"
+                                stroke-linecap="round" />
+                        </svg>
+                    </div>
+                    <h3>Visual Reports</h3>
+                    <p>Comprehensive charts and graphs for easy interpretation</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+                            <path d="M4 8L16 2L28 8V14C28 21 16 28 16 28C16 28 4 21 4 14V8Z" stroke="currentColor"
+                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                    </div>
+                    <h3>Email Delivery</h3>
+                    <p>Automated report delivery to stakeholders</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+                            <circle cx="16" cy="16" r="10" stroke="currentColor" stroke-width="2" />
+                            <path d="M16 12V16L19 19" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                        </svg>
+                    </div>
+                    <h3>Risk Assessment</h3>
+                    <p>Automated risk level classification (Low/Medium/High)</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+                            <path d="M26 16C26 21.52 21.52 26 16 26C10.48 26 6 21.52 6 16" stroke="currentColor"
+                                stroke-width="2" stroke-linecap="round" />
+                            <path d="M16 6V16L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                stroke-linejoin="round" />
+                        </svg>
+                    </div>
+                    <h3>Actionable Insights</h3>
+                    <p>Specific recommendations for remediation</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- How It Works Section -->
+        <section class="how-it-works-section">
+            <h2 class="section-heading">How It Works</h2>
+            <p class="section-subheading">Simple, fast, and powerful fraud detection in three steps</p>
+
+            <div class="steps-container">
+                <div class="step-item">
+                    <div class="step-number">1</div>
+                    <div class="step-content">
+                        <h3>Upload Document</h3>
+                        <p>Drag and drop your financial document (PDF, DOCX, or TXT)</p>
+                    </div>
+                </div>
+
+                <div class="step-connector"></div>
+
+                <div class="step-item">
+                    <div class="step-number">2</div>
+                    <div class="step-content">
+                        <h3>AI Analysis</h3>
+                        <p>Our Groq-powered AI examines for fraud patterns and anomalies</p>
+                    </div>
+                </div>
+
+                <div class="step-connector"></div>
+
+                <div class="step-item">
+                    <div class="step-number">3</div>
+                    <div class="step-content">
+                        <h3>Get Results</h3>
+                        <p>Receive comprehensive report with visualizations and recommendations</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Stats Section -->
+        <section class="stats-section">
+            <div class="stat-card">
+                <div class="stat-number">10-20x</div>
+                <div class="stat-label">Faster Analysis</div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-number">7+</div>
+                <div class="stat-label">Fraud Patterns Detected</div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-number">100%</div>
+                <div class="stat-label">Automated Processing</div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-number">
+                    < 10s</div>
+                        <div class="stat-label">Average Response Time</div>
+                </div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <div class="footer-content">
+                <div class="footer-section">
+                    <h4>AI Audit Agent</h4>
+                    <p>Next-generation fraud detection powered by artificial intelligence</p>
+                    <div class="footer-tech">
+                        <span class="tech-badge">Groq</span>
+                        <span class="tech-badge">Llama 3.3 70B</span>
+                        <span class="tech-badge">FastAPI</span>
+                    </div>
+                </div>
+
+                <div class="footer-section">
+                    <h4>Detection Types</h4>
+                    <ul class="footer-list">
+                        <li>Duplicate Payments</li>
+                        <li>Inflated Costs</li>
+                        <li>Missing Approvals</li>
+                        <li>Suspicious Vendors</li>
+                    </ul>
+                </div>
+
+                <div class="footer-section">
+                    <h4>Features</h4>
+                    <ul class="footer-list">
+                        <li>Multi-Format Support</li>
+                        <li>Real-Time Analysis</li>
+                        <li>Email Reports</li>
+                        <li>Visual Dashboards</li>
+                    </ul>
+                </div>
+
+                <div class="footer-section">
+                    <h4>Resources</h4>
+                    <ul class="footer-list">
+                        <li><a href="http://localhost:8000/docs" target="_blank">API Documentation</a></li>
+                        <li><a href="http://localhost:8000/health" target="_blank">System Health</a></li>
+                        <li><a href="#" id="scrollToTop">Back to Top ↑</a></li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="footer-bottom">
+                <p>&copy; 2025 AI Audit Agent. Built for public financial accountability.</p>
+                <p class="footer-disclaimer">
+                    This is a demonstration system. Always consult with qualified auditors for official determinations.
+                </p>
+            </div>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+
+</html>

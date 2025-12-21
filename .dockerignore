@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Environment
+.env
+.venv
+venv/
+ENV/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+logs/
+*.log
+uploads/
+visualizations/
+*.db
+*.sqlite
+
+# Git
+.git/
+.gitignore
+
+# Documentation (keep in repo, exclude from Docker)
+*.md
+!README.md
+
+# Tests (if you add them later)
+tests/
+pytest_cache/
+.coverage
+
+# Frontend build artifacts (if using build tools)
+frontend/node_modules/
+frontend/dist/
+frontend/.next/
