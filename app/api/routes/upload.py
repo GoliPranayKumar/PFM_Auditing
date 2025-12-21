@@ -13,7 +13,6 @@ API Flow:
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, status, Form
 from typing import Optional
-from starlette.concurrency import run_in_threadpool
 
 from app.models.schemas import FileUploadResponse, DocumentFraudFlag, DocumentAuditResponse
 from app.services.document_loader import document_loader_service
@@ -63,9 +62,7 @@ async def analyze_uploaded_document(
     try:
         logger.debug(f"[Request {request_id}] Validating file and extracting text...")
         
-        # Run blocking file processing in threadpool
-        extracted_text, metadata = await run_in_threadpool(
-            document_loader_service.process_uploaded_file,
+        extracted_text, metadata = document_loader_service.process_uploaded_file(
             file_content=file_content,
             filename=file.filename or "unknown.txt",
             cleanup_after=True  # Auto-delete temporary file
@@ -108,12 +105,6 @@ async def analyze_uploaded_document(
     try:
         logger.info(f"[Request {request_id}] Starting fraud analysis with AI agent...")
         
-        # Truncate text if too long to prevent timeouts/OOM
-        MAX_CHARS = 100000
-        if len(extracted_text) > MAX_CHARS:
-            logger.warning(f"[Request {request_id}] Truncating text from {len(extracted_text)} to {MAX_CHARS} chars")
-            extracted_text = extracted_text[:MAX_CHARS] + "... [TRUNCATED]"
-
         analysis_result = await fraud_agent.analyze_document_async(extracted_text)
         
         logger.info(
@@ -134,28 +125,27 @@ async def analyze_uploaded_document(
     # STEP 4: Generate Visualizations
     # ========================================
     visualizations = None
-    # try:
-    #     logger.debug(f"[Request {request_id}] Generating visualization charts...")
+    try:
+        logger.debug(f"[Request {request_id}] Generating visualization charts...")
         
-    #     from backend.services.visualization import visualization_service
+        from backend.services.visualization import visualization_service
         
-    #     # Run blocking visualization in threadpool
-    #     dashboard_path = await run_in_threadpool(
-    #         visualization_service.create_comprehensive_dashboard,
-    #         risk_level=analysis_result.risk_level,
-    #         total_flagged_amount=analysis_result.total_flagged_amount,
-    #         flags=[flag.model_dump() for flag in analysis_result.list_of_flags]
-    #     )
+        # Create comprehensive dashboard
+        dashboard_path = visualization_service.create_comprehensive_dashboard(
+            risk_level=analysis_result.risk_level,
+            total_flagged_amount=analysis_result.total_flagged_amount,
+            flags=[flag.model_dump() for flag in analysis_result.list_of_flags]
+        )
         
-    #     visualizations = {
-    #         "dashboard": str(dashboard_path),
-    #     }
+        visualizations = {
+            "dashboard": str(dashboard_path),
+        }
         
-    #     logger.info(f"[Request {request_id}] Visualizations generated: {len(visualizations)} chart(s)")
+        logger.info(f"[Request {request_id}] Visualizations generated: {len(visualizations)} chart(s)")
         
-    # except Exception as viz_error:
-    #     # Visualization errors are non-critical - log but continue
-    #     logger.warning(f"[Request {request_id}] Failed to generate visualizations: {viz_error}")
+    except Exception as viz_error:
+        # Visualization errors are non-critical - log but continue
+        logger.warning(f"[Request {request_id}] Failed to generate visualizations: {viz_error}")
     
     # ========================================
     # STEP 5: Send Email Report (Optional)
@@ -218,29 +208,152 @@ async def analyze_uploaded_document(
             for flag in analysis_result.list_of_flags
         ]
         
+        # Merge metadata
+        analysis_metadata = analysis_result.document_metadata.copy()
+        analysis_metadata.update({
+            "original_filename": metadata["original_filename"],
+            "file_type": metadata["file_type"],
+            "file_size_bytes": metadata["file_size_bytes"],
+            "extraction_timestamp": metadata["extraction_timestamp"]
+        })
+        
+        # Build audit response
+        audit_response = DocumentAuditResponse(
+            risk_level=analysis_result.risk_level,
+            summary=analysis_result.summary,
+            list_of_flags=fraud_flags,
+            recommendations=analysis_result.recommendations,
+            total_flagged_amount=analysis_result.total_flagged_amount,
+            document_metadata=analysis_metadata,
+            visualizations=visualizations,
+            email_sent=email_status  # Include email status if email was sent
+        )
+        
         # Build final response
         response = FileUploadResponse(
             filename=metadata["original_filename"],
             file_type=metadata["file_type"],
-            file_size_bytes=file_size,
-            extracted_text_length=len(extracted_text),
-            analysis=DocumentAuditResponse(
-                risk_level=analysis_result.risk_level,
-                summary=analysis_result.summary,
-                total_flagged_amount=analysis_result.total_flagged_amount,
-                list_of_flags=fraud_flags,
-                recommendations=analysis_result.recommendations,
-                visualizations=visualizations,
-                email_sent=email_status
-            )
+            file_size_bytes=metadata["file_size_bytes"],
+            extracted_text_length=metadata["extracted_length"],
+            analysis=audit_response
         )
         
-        logger.info(f"[Request {request_id}] Analysis completed successfully")
+        logger.info(
+            f"[Request {request_id}] Request completed successfully! "
+            f"Risk={audit_response.risk_level}, "
+            f"Response size: ~{len(str(response.model_dump())):,} bytes"
+        )
+        
         return response
         
     except Exception as e:
-        logger.error(f"[Request {request_id}] Failed to build response: {str(e)}")
+        logger.error(f"[Request {request_id}] Failed to format response: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to build response: {str(e)}"
+            detail=f"Failed to format response: {str(e)}"
+        )
+
+
+@router.get("/", status_code=status.HTTP_200_OK)
+async def upload_info():
+    """
+    Get information about the file upload API.
+    
+    Returns comprehensive API documentation including supported formats,
+    file size limits, processing workflow, and usage examples.
+    
+    Returns:
+        Dict with API information and capabilities
+    """
+    logger.debug("File upload info endpoint called")
+    
+    return {
+        "message": "File Upload & Analysis API",
+        "version": "1.0.0",
+        "description": "Upload financial documents for automated fraud detection",
+        "supported_formats": [
+            {
+                "extension": ".pdf",
+                "description": "Adobe PDF documents",
+                "loader": "PyPDF2 / LangChain PyPDFLoader",
+                "mime_types": ["application/pdf"]
+            },
+            {
+                "extension": ".docx",
+                "description": "Microsoft Word documents",
+                "loader": "python-docx / LangChain Docx2txtLoader",
+                "mime_types": ["application/vnd.openxmlformats-officedocument.wordprocessingml.document"]
+            },
+            {
+                "extension": ".txt",
+                "description": "Plain text files",
+                "loader": "Direct read / LangChain TextLoader",
+                "mime_types": ["text/plain"]
+            }
+        ],
+        "limits": {
+            "max_file_size_mb": 10,
+            "max_file_size_bytes": 10 * 1024 * 1024,
+            "min_text_length": 50,
+            "max_text_length": 100000
+        },
+        "workflow": [
+            "1. Upload file (PDF, DOCX, or TXT)",
+            "2. Validate file type and size",
+            "3. Extract text using LangChain loaders",
+            "4. Analyze for fraud with AI agent",
+            "5. Generate visualization charts",
+            "6. Return structured JSON results"
+        ],
+        "endpoints": {
+            "POST /api/v1/upload/analyze": "Upload and analyze a document",
+            "GET /api/v1/upload/": "Get API information",
+            "POST /api/v1/upload/cleanup": "Clean up old files"
+        },
+        "documentation": "/docs",
+        "example_usage": {
+            "python": "requests.post('http://localhost:8000/api/v1/upload/analyze', files={'file': open('report.pdf', 'rb')})",
+            "curl": "curl -X POST http://localhost:8000/api/v1/upload/analyze -F 'file=@report.pdf'"
+        }
+    }
+
+
+@router.post("/cleanup", status_code=status.HTTP_200_OK)
+async def cleanup_old_files(max_age_hours: int = 24):
+    """
+    Clean up old uploaded files from temporary storage.
+    
+    This maintenance endpoint removes temporary files older than the specified age.
+    Useful for periodic cleanup to prevent disk space issues.
+    
+    Args:
+        max_age_hours: Maximum age of files to keep (default: 24 hours)
+        
+    Returns:
+        Dict with cleanup results
+        
+    Example:
+        ```
+        POST /api/v1/upload/cleanup?max_age_hours=1
+        ```
+    """
+    logger.info(f"Starting cleanup of files older than {max_age_hours} hours...")
+    
+    try:
+        deleted_count = document_loader_service.cleanup_old_files(max_age_hours)
+        
+        logger.info(f"Cleanup completed: {deleted_count} file(s) deleted")
+        
+        return {
+            "success": True,
+            "message": f"Cleanup completed successfully",
+            "files_deleted": deleted_count,
+            "max_age_hours": max_age_hours
+        }
+        
+    except Exception as e:
+        logger.error(f"Cleanup failed: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Cleanup failed: {str(e)}"
         )
