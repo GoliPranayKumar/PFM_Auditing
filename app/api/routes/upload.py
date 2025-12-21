@@ -222,7 +222,8 @@ async def analyze_uploaded_document(
         response = FileUploadResponse(
             filename=metadata["original_filename"],
             file_type=metadata["file_type"],
-            file_size=file_size,
+            file_size_bytes=file_size,
+            extracted_text_length=len(extracted_text),
             analysis=DocumentAuditResponse(
                 risk_level=analysis_result.risk_level,
                 summary=analysis_result.summary,
