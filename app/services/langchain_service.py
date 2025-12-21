@@ -24,12 +24,26 @@ class LangChainService:
     
     def __init__(self):
         """Initialize LangChain service with Groq model."""
-        self.llm = ChatGroq(
-            model="llama-3.3-70b-versatile",  # Fast and accurate
-            temperature=0.2,
-            groq_api_key=settings.groq_api_key
-        )
-        self.parser = PydanticOutputParser(pydantic_object=FraudAnalysis)
+        self._llm = None
+        self._parser = None
+    
+    @property
+    def llm(self):
+        """Lazy-load LLM instance on first access."""
+        if self._llm is None:
+            self._llm = ChatGroq(
+                model="llama-3.3-70b-versatile",  # Fast and accurate
+                temperature=0.2,
+                groq_api_key=settings.groq_api_key
+            )
+        return self._llm
+    
+    @property
+    def parser(self):
+        """Get or create the parser."""
+        if self._parser is None:
+            self._parser = PydanticOutputParser(pydantic_object=FraudAnalysis)
+        return self._parser
         
     def _create_audit_prompt(self) -> ChatPromptTemplate:
         """Create the audit analysis prompt template."""
