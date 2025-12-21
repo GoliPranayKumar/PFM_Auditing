@@ -134,28 +134,28 @@ async def analyze_uploaded_document(
     # STEP 4: Generate Visualizations
     # ========================================
     visualizations = None
-    try:
-        logger.debug(f"[Request {request_id}] Generating visualization charts...")
+    # try:
+    #     logger.debug(f"[Request {request_id}] Generating visualization charts...")
         
-        from backend.services.visualization import visualization_service
+    #     from backend.services.visualization import visualization_service
         
-        # Run blocking visualization in threadpool
-        dashboard_path = await run_in_threadpool(
-            visualization_service.create_comprehensive_dashboard,
-            risk_level=analysis_result.risk_level,
-            total_flagged_amount=analysis_result.total_flagged_amount,
-            flags=[flag.model_dump() for flag in analysis_result.list_of_flags]
-        )
+    #     # Run blocking visualization in threadpool
+    #     dashboard_path = await run_in_threadpool(
+    #         visualization_service.create_comprehensive_dashboard,
+    #         risk_level=analysis_result.risk_level,
+    #         total_flagged_amount=analysis_result.total_flagged_amount,
+    #         flags=[flag.model_dump() for flag in analysis_result.list_of_flags]
+    #     )
         
-        visualizations = {
-            "dashboard": str(dashboard_path),
-        }
+    #     visualizations = {
+    #         "dashboard": str(dashboard_path),
+    #     }
         
-        logger.info(f"[Request {request_id}] Visualizations generated: {len(visualizations)} chart(s)")
+    #     logger.info(f"[Request {request_id}] Visualizations generated: {len(visualizations)} chart(s)")
         
-    except Exception as viz_error:
-        # Visualization errors are non-critical - log but continue
-        logger.warning(f"[Request {request_id}] Failed to generate visualizations: {viz_error}")
+    # except Exception as viz_error:
+    #     # Visualization errors are non-critical - log but continue
+    #     logger.warning(f"[Request {request_id}] Failed to generate visualizations: {viz_error}")
     
     # ========================================
     # STEP 5: Send Email Report (Optional)
