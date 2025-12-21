@@ -175,25 +175,71 @@ async function analyzeDocument() {
 
     try {
         // Make API request
-        const response = await fetch(API_ENDPOINT, {
+        const initialResponse = await fetch(API_ENDPOINT, {
             method: 'POST',
             body: formData
         });
 
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            throw new Error(errorData.detail || `Server error: ${response.status}`);
+        if (!initialResponse.ok) {
+            const errorData = await initialResponse.json().catch(() => ({}));
+            throw new Error(errorData.detail || `Server error: ${initialResponse.status}`);
         }
 
-        const data = await response.json();
+        const initialData = await initialResponse.json();
+        const requestId = initialData.request_id;
+
+        console.log(`Analysis started. Request ID: ${requestId}`);
+
+        // Poll for results
+        const result = await pollForResults(requestId);
 
         // Display results
-        displayResults(data);
+        displayResults(result);
 
     } catch (error) {
         console.error('Analysis error:', error);
         showError(error.message || 'Failed to analyze document. Please try again.');
     }
+}
+
+/**
+ * Poll the status endpoint until completion
+ */
+async function pollForResults(requestId) {
+    const statusEndpoint = `${API_BASE_URL}/api/v1/upload/status/${requestId}`;
+
+    // Poll every 2 seconds
+    const pollInterval = 2000;
+
+    return new Promise((resolve, reject) => {
+        const intervalId = setInterval(async () => {
+            try {
+                const response = await fetch(statusEndpoint);
+
+                if (!response.ok) {
+                    clearInterval(intervalId);
+                    reject(new Error(`Status check failed: ${response.status}`));
+                    return;
+                }
+
+                const data = await response.json();
+                console.log('Status polling:', data.status, data.stage);
+
+                if (data.status === 'completed') {
+                    clearInterval(intervalId);
+                    resolve(data.result); // Resolve with the final result object
+                } else if (data.status === 'failed') {
+                    clearInterval(intervalId);
+                    reject(new Error(data.error || 'Analysis failed'));
+                }
+                // If 'processing' or 'queued', continue polling
+
+            } catch (error) {
+                clearInterval(intervalId);
+                reject(error);
+            }
+        }, pollInterval);
+    });
 }
 
 // ========================================

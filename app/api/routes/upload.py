@@ -11,8 +11,11 @@ API Flow:
 7. Return structured JSON response
 """
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, status, Form
-from typing import Optional
+from fastapi import APIRouter, UploadFile, File, HTTPException, status, Form, BackgroundTasks
+from typing import Optional, Dict, Any
+import uuid
+import datetime
+import traceback
 
 from app.models.schemas import FileUploadResponse, DocumentFraudFlag, DocumentAuditResponse
 from app.services.document_loader import document_loader_service
@@ -26,176 +29,122 @@ router = APIRouter(prefix="/api/v1/upload", tags=["File Upload"])
 fraud_agent = FraudDetectionAgent()
 logger = get_logger(__name__)
 
+# In-memory result store (simple dict for MVP)
+# Structure: { request_id: { "status": "processing"|"completed"|"failed", "result": ..., "error": ... } }
+RESULTS_STORE: Dict[str, Dict[str, Any]] = {}
 
-@router.post("/analyze", response_model=FileUploadResponse)
-async def analyze_uploaded_document(
-    file: UploadFile = File(...),
-    recipient_email: Optional[str] = Form(None)
+async def process_document_task(
+    request_id: str,
+    filename: str,
+    file_content: bytes,
+    recipient_email: Optional[str]
 ):
-    """Upload and analyze a financial document with optional email report."""
+    """
+    Background task to process document, analyze fraud, generate visualization, and send email.
+    """
+    logger.info(f"[Request {request_id}] 🟢 Starting background processing task")
     
-    request_id = id(file)  # Simple request tracking
-    logger.info(f"[Request {request_id}] Starting file upload analysis")
-    logger.info(f"[Request {request_id}] Filename: {file.filename}, Content-Type: {file.content_type}")
-    if recipient_email:
-        logger.info(f"[Request {request_id}] Email report will be sent to: {recipient_email}")
-    
-    # ========================================
-    # STEP 1: Read File Content
-    # ========================================
     try:
-        logger.debug(f"[Request {request_id}] Reading uploaded file content...")
-        file_content = await file.read()
-        file_size = len(file_content)
-        logger.info(f"[Request {request_id}] File read successfully: {file_size:,} bytes")
-        
-    except Exception as e:
-        logger.error(f"[Request {request_id}] Failed to read file: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to read uploaded file: {str(e)}"
-        )
-    
-    # ========================================
-    # STEP 2: Validate and Extract Text
-    # ========================================
-    try:
-        logger.debug(f"[Request {request_id}] Validating file and extracting text...")
-        
+        # Update status
+        RESULTS_STORE[request_id] = {
+            "status": "processing", 
+            "stage": "extracting_text",
+            "timestamp": datetime.datetime.now().isoformat()
+        }
+
+        # ========================================
+        # STEP 1: Process & Extract Text
+        # ========================================
+        logger.debug(f"[Request {request_id}] Extracting text from {filename}...")
         extracted_text, metadata = document_loader_service.process_uploaded_file(
             file_content=file_content,
-            filename=file.filename or "unknown.txt",
-            cleanup_after=True  # Auto-delete temporary file
+            filename=filename,
+            cleanup_after=True
         )
         
-        logger.info(
-            f"[Request {request_id}] Text extracted successfully: "
-            f"{metadata['extracted_length']:,} characters from {metadata['file_type']} file"
-        )
-        
-    except ValueError as e:
-        # Validation error (invalid file type or size)
-        logger.warning(f"[Request {request_id}] File validation failed: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
-    except Exception as e:
-        # Extraction error
-        logger.error(f"[Request {request_id}] Text extraction failed: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to extract text from document: {str(e)}"
-        )
-    
-    # Verify sufficient text was extracted
-    if len(extracted_text) < 50:
-        logger.warning(
-            f"[Request {request_id}] Insufficient text extracted: "
-            f"{len(extracted_text)} chars (minimum: 50)"
-        )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Insufficient text extracted ({len(extracted_text)} chars). Minimum 50 characters required."
-        )
-    
-    # ========================================
-    # STEP 3: Perform Fraud Analysis
-    # ========================================
-    try:
-        logger.info(f"[Request {request_id}] Starting fraud analysis with AI agent...")
+        if len(extracted_text) < 50:
+            raise ValueError(f"Insufficient text extracted ({len(extracted_text)} chars). Minimum 50 required.")
+
+        # ========================================
+        # STEP 2: Fraud Analysis
+        # ========================================
+        RESULTS_STORE[request_id]["stage"] = "analyzing_fraud"
+        logger.info(f"[Request {request_id}] 🤖 Running AI Fraud Analysis...")
         
         analysis_result = await fraud_agent.analyze_document_async(extracted_text)
         
         logger.info(
-            f"[Request {request_id}] Analysis complete: "
-            f"Risk={analysis_result.risk_level}, "
-            f"Flags={len(analysis_result.list_of_flags)}, "
-            f"Amount=${analysis_result.total_flagged_amount:,.2f}"
+            f"[Request {request_id}] Analysis complete: Risk={analysis_result.risk_level}, "
+            f"Flags={len(analysis_result.list_of_flags)}"
         )
+
+        # ========================================
+        # STEP 3: Generate Visualizations
+        # ========================================
+        RESULTS_STORE[request_id]["stage"] = "generating_visualizations"
+        visualizations = None
         
-    except Exception as e:
-        logger.error(f"[Request {request_id}] Fraud analysis failed: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Fraud analysis failed: {str(e)}"
-        )
-    
-    # ========================================
-    # STEP 4: Generate Visualizations
-    # ========================================
-    visualizations = None
-    try:
-        logger.debug(f"[Request {request_id}] Generating visualization charts...")
-        
-        from backend.services.visualization import visualization_service
-        
-        # Create comprehensive dashboard
-        dashboard_path = visualization_service.create_comprehensive_dashboard(
-            risk_level=analysis_result.risk_level,
-            total_flagged_amount=analysis_result.total_flagged_amount,
-            flags=[flag.model_dump() for flag in analysis_result.list_of_flags]
-        )
-        
-        visualizations = {
-            "dashboard": str(dashboard_path),
-        }
-        
-        logger.info(f"[Request {request_id}] Visualizations generated: {len(visualizations)} chart(s)")
-        
-    except Exception as viz_error:
-        # Visualization errors are non-critical - log but continue
-        logger.warning(f"[Request {request_id}] Failed to generate visualizations: {viz_error}")
-    
-    # ========================================
-    # STEP 5: Send Email Report (Optional)
-    # ========================================
-    email_status = None
-    if recipient_email:
         try:
-            logger.info(f"[Request {request_id}] Sending email report to: {recipient_email}")
+            # Lazy import to handle missing dependencies gracefully
+            from backend.services.visualization import visualization_service
             
-            from backend.services.email_service import email_service
-            
-            # Send email with visualizations
-            email_result = await email_service.send_analysis_report_async(
-                recipient_email=recipient_email,
+            dashboard_path = visualization_service.create_comprehensive_dashboard(
                 risk_level=analysis_result.risk_level,
-                summary=analysis_result.summary,
                 total_flagged_amount=analysis_result.total_flagged_amount,
-                flags=[flag.model_dump() for flag in analysis_result.list_of_flags],
-                recommendations=analysis_result.recommendations,
-                visualizations=visualizations,
-                document_name=metadata["original_filename"]
+                flags=[flag.model_dump() for flag in analysis_result.list_of_flags]
             )
+            visualizations = {"dashboard": str(dashboard_path)}
+            logger.info(f"[Request {request_id}] 📊 Visualizations generated successfully")
             
-            email_status = {
-                "success": email_result["success"],
-                "recipient": recipient_email,
-                "message": email_result.get("message", "Email sent successfully")
-            }
-            
-            if email_result["success"]:
-                logger.info(f"[Request {request_id}] ✅ Email sent successfully to {recipient_email}")
-            else:
-                logger.warning(f"[Request {request_id}] ⚠️ Email sending failed: {email_result.get('error')}")
-                email_status["error"] = email_result.get("error")
+        except ImportError:
+            logger.warning(f"[Request {request_id}] Visualizations skipped: matplotlib/seaborn not installed")
+        except Exception as e:
+            logger.warning(f"[Request {request_id}] Visualization error (non-fatal): {e}")
+
+        # ========================================
+        # STEP 4: Send Email (Critical)
+        # ========================================
+        email_status = None
+        if recipient_email:
+            RESULTS_STORE[request_id]["stage"] = "sending_email"
+            try:
+                logger.info(f"[Request {request_id}] 📧 Preparing email for {recipient_email}...")
                 
-        except Exception as email_error:
-            logger.warning(f"[Request {request_id}] Failed to send email: {email_error}")
-            email_status = {
-                "success": False,
-                "recipient": recipient_email,
-                "error": str(email_error)
-            }
-    
-    # ========================================
-    # STEP 6: Build Response
-    # ========================================
-    try:
-        logger.debug(f"[Request {request_id}] Building API response...")
+                from backend.services.email_service import email_service
+                
+                # Verify email service is configured
+                if not email_service.is_configured:
+                     logger.warning(f"[Request {request_id}] Email service not configured (GMAIL_USER missing)")
+                     email_status = {"success": False, "error": "Email service not configured"}
+                else:
+                    email_report = await email_service.send_analysis_report_async(
+                        recipient_email=recipient_email,
+                        risk_level=analysis_result.risk_level,
+                        summary=analysis_result.summary,
+                        total_flagged_amount=analysis_result.total_flagged_amount,
+                        flags=[flag.model_dump() for flag in analysis_result.list_of_flags],
+                        recommendations=analysis_result.recommendations,
+                        visualizations=visualizations,
+                        document_name=metadata["original_filename"]
+                    )
+                    
+                    if email_report.get("success"):
+                        logger.info(f"[Request {request_id}] ✅ Email sent successfully!")
+                        email_status = {"success": True, "message": "Email sent"}
+                    else:
+                        logger.error(f"[Request {request_id}] ❌ Email failed: {email_report.get('error')}")
+                        email_status = {"success": False, "error": email_report.get("error")}
+                        
+            except Exception as e:
+                logger.error(f"[Request {request_id}] Unexpected email error: {e}")
+                email_status = {"success": False, "error": str(e)}
+
+        # ========================================
+        # STEP 5: Finalize Result
+        # ========================================
+        RESULTS_STORE[request_id]["stage"] = "completed"
         
-        # Convert fraud flags to response format
+        # Format for API response
         fraud_flags = [
             DocumentFraudFlag(
                 category=flag.category,
@@ -207,8 +156,7 @@ async def analyze_uploaded_document(
             )
             for flag in analysis_result.list_of_flags
         ]
-        
-        # Merge metadata
+
         analysis_metadata = analysis_result.document_metadata.copy()
         analysis_metadata.update({
             "original_filename": metadata["original_filename"],
@@ -216,8 +164,7 @@ async def analyze_uploaded_document(
             "file_size_bytes": metadata["file_size_bytes"],
             "extraction_timestamp": metadata["extraction_timestamp"]
         })
-        
-        # Build audit response
+
         audit_response = DocumentAuditResponse(
             risk_level=analysis_result.risk_level,
             summary=analysis_result.summary,
@@ -226,32 +173,80 @@ async def analyze_uploaded_document(
             total_flagged_amount=analysis_result.total_flagged_amount,
             document_metadata=analysis_metadata,
             visualizations=visualizations,
-            email_sent=email_status  # Include email status if email was sent
+            email_sent=email_status
         )
         
-        # Build final response
-        response = FileUploadResponse(
+        RESULTS_STORE[request_id]["status"] = "completed"
+        RESULTS_STORE[request_id]["result"] = FileUploadResponse(
             filename=metadata["original_filename"],
             file_type=metadata["file_type"],
             file_size_bytes=metadata["file_size_bytes"],
             extracted_text_length=metadata["extracted_length"],
             analysis=audit_response
+        ).model_dump()
+        
+        logger.info(f"[Request {request_id}] 🏁 Processing task completed successfully")
+
+    except Exception as e:
+        logger.error(f"[Request {request_id}] 💥 Task failed: {e}")
+        logger.error(traceback.format_exc())
+        RESULTS_STORE[request_id]["status"] = "failed"
+        RESULTS_STORE[request_id]["error"] = str(e)
+
+
+@router.post("/analyze", status_code=status.HTTP_202_ACCEPTED)
+async def analyze_uploaded_document(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    recipient_email: Optional[str] = Form(None)
+):
+    """
+    Upload a document for background analysis.
+    Returns a request_id for polling status.
+    """
+    request_id = str(uuid.uuid4())
+    logger.info(f"Received upload request. Assigned ID: {request_id}")
+    
+    try:
+        # Read file content immediately (file is closed after request context)
+        file_content = await file.read()
+        filename = file.filename or "unknown_file"
+        
+        # Initialize status
+        RESULTS_STORE[request_id] = {
+            "status": "queued",
+            "timestamp": datetime.datetime.now().isoformat()
+        }
+        
+        # Dispatch background task
+        background_tasks.add_task(
+            process_document_task,
+            request_id,
+            filename,
+            file_content,
+            recipient_email
         )
         
-        logger.info(
-            f"[Request {request_id}] Request completed successfully! "
-            f"Risk={audit_response.risk_level}, "
-            f"Response size: ~{len(str(response.model_dump())):,} bytes"
-        )
-        
-        return response
+        return {
+            "status": "processing",
+            "request_id": request_id,
+            "message": "File uploaded successfully. Processing started in background."
+        }
         
     except Exception as e:
-        logger.error(f"[Request {request_id}] Failed to format response: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to format response: {str(e)}"
-        )
+        logger.error(f"Failed to initiate upload processing: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/status/{request_id}")
+async def get_analysis_status(request_id: str):
+    """
+    Check the status of a document analysis request.
+    """
+    if request_id not in RESULTS_STORE:
+        raise HTTPException(status_code=404, detail="Request ID not found")
+        
+    return RESULTS_STORE[request_id]
 
 
 @router.get("/", status_code=status.HTTP_200_OK)
