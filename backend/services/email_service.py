@@ -282,6 +282,7 @@ class EmailService:
                 # Use implicit SSL (Port 465)
                 try:
                     server = smtplib.SMTP_SSL(self.smtp_server, self.smtp_port, timeout=30)
+                    server.set_debuglevel(1)  # Enable verbose SMTP logging
                     print(f"[Email] Connected (SSL). Logging in as {self.gmail_user}...")
                     server.login(self.gmail_user, self.gmail_password)
                     
@@ -293,6 +294,7 @@ class EmailService:
             else:
                 # Use explicit SSL/STARTTLS (Port 587 or others)
                 with smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=30) as server:
+                    server.set_debuglevel(1)  # Enable verbose SMTP logging
                     print(f"[Email] Connected. Starting TLS...")
                     server.starttls()  # Secure connection
                     
