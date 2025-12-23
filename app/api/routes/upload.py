@@ -16,6 +16,8 @@ from typing import Optional, Dict, Any
 import uuid
 import datetime
 import traceback
+import asyncio
+import functools
 
 from app.models.schemas import FileUploadResponse, DocumentFraudFlag, DocumentAuditResponse
 from app.services.document_loader import document_loader_service
@@ -55,11 +57,21 @@ async def process_document_task(
         # ========================================
         # STEP 1: Process & Extract Text
         # ========================================
+        # ========================================
+        # STEP 1: Process & Extract Text
+        # ========================================
         logger.debug(f"[Request {request_id}] Extracting text from {filename}...")
-        extracted_text, metadata = document_loader_service.process_uploaded_file(
-            file_content=file_content,
-            filename=filename,
-            cleanup_after=True
+        
+        # Run blocking document loading in thread pool
+        loop = asyncio.get_running_loop()
+        extracted_text, metadata = await loop.run_in_executor(
+            None,
+            functools.partial(
+                document_loader_service.process_uploaded_file,
+                file_content=file_content,
+                filename=filename,
+                cleanup_after=True
+            )
         )
         
         if len(extracted_text) < 50:
@@ -88,10 +100,15 @@ async def process_document_task(
             # Lazy import to handle missing dependencies gracefully
             from backend.services.visualization import visualization_service
             
-            dashboard_path = visualization_service.create_comprehensive_dashboard(
-                risk_level=analysis_result.risk_level,
-                total_flagged_amount=analysis_result.total_flagged_amount,
-                flags=[flag.model_dump() for flag in analysis_result.list_of_flags]
+            # Run blocking visualization generation in thread pool
+            dashboard_path = await loop.run_in_executor(
+                None,
+                functools.partial(
+                    visualization_service.create_comprehensive_dashboard,
+                    risk_level=analysis_result.risk_level,
+                    total_flagged_amount=analysis_result.total_flagged_amount,
+                    flags=[flag.model_dump() for flag in analysis_result.list_of_flags]
+                )
             )
             visualizations = {"dashboard": str(dashboard_path)}
             logger.info(f"[Request {request_id}] 📊 Visualizations generated successfully")
@@ -113,19 +130,26 @@ async def process_document_task(
                 from backend.services.email_service import email_service
                 
                 # Verify email service is configured
+                # Verify email service is configured
                 if not email_service.is_configured:
                      logger.warning(f"[Request {request_id}] Email service not configured (GMAIL_USER missing)")
                      email_status = {"success": False, "error": "Email service not configured"}
                 else:
-                    email_report = await email_service.send_analysis_report_async(
-                        recipient_email=recipient_email,
-                        risk_level=analysis_result.risk_level,
-                        summary=analysis_result.summary,
-                        total_flagged_amount=analysis_result.total_flagged_amount,
-                        flags=[flag.model_dump() for flag in analysis_result.list_of_flags],
-                        recommendations=analysis_result.recommendations,
-                        visualizations=visualizations,
-                        document_name=metadata["original_filename"]
+                    # Run blocking email sending in thread pool
+                    # Note: We use the sync `send_analysis_report` method here
+                    email_report = await loop.run_in_executor(
+                        None,
+                        functools.partial(
+                            email_service.send_analysis_report,
+                            recipient_email=recipient_email,
+                            risk_level=analysis_result.risk_level,
+                            summary=analysis_result.summary,
+                            total_flagged_amount=analysis_result.total_flagged_amount,
+                            flags=[flag.model_dump() for flag in analysis_result.list_of_flags],
+                            recommendations=analysis_result.recommendations,
+                            visualizations=visualizations,
+                            document_name=metadata["original_filename"]
+                        )
                     )
                     
                     if email_report.get("success"):
