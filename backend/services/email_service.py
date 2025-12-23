@@ -271,7 +271,12 @@ class EmailService:
                         print(f"Warning: Failed to attach {viz_name}: {e}")
             
             # Send email
+            # DEBUG: Check what credentials we actually have
+            safe_user = f"{self.gmail_user[:3]}..." if self.gmail_user else "None"
+            pass_len = len(self.gmail_password) if self.gmail_password else 0
+            print(f"[Email DEBUG] Configured User: {safe_user}, Pass Len: {pass_len}")
             print(f"[Email] Connecting to {self.smtp_server}:{self.smtp_port}...")
+            
             timestamp_start = datetime.now()
             
             # Choose connection method based on port
@@ -294,6 +299,7 @@ class EmailService:
             else:
                 # Use explicit SSL/STARTTLS (Port 587 or others)
                 with smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=30) as server:
+
                     server.set_debuglevel(1)  # Enable verbose SMTP logging
                     print(f"[Email] Connected. Starting TLS...")
                     server.starttls()  # Secure connection
