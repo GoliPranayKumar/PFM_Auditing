@@ -50,12 +50,7 @@ class EmailService:
         self.smtp_port = smtp_port
         
         # Check if credentials are configured
-        # Check for Resend API Key (Fallback for blocked SMTP)
-        import os
-        self.resend_api_key = os.getenv("RESEND_API_KEY")
-        
-        # Check if credentials are configured
-        self.is_configured = bool((self.gmail_user and self.gmail_password) or self.resend_api_key)
+        self.is_configured = bool(self.gmail_user and self.gmail_password)
     
     def _create_html_report(
         self,
@@ -192,64 +187,11 @@ class EmailService:
                 <p style="margin: 5px 0;">⚠️ This email and attachments may contain confidential information.</p>
             </div>
             
-        </body>
+            </body>
         </html>
         """
         
         return html
-    
-    def _send_via_resend(self, recipient_email: str, subject: str, html_body: str) -> Dict[str, Any]:
-        """Send email using Resend API (bypasses SMTP blocking)."""
-        import httpx
-        import json
-        
-        print(f"[Email] Sending via Resend API to {recipient_email}...")
-        
-        try:
-            url = "https://api.resend.com/emails"
-            headers = {
-                "Authorization": f"Bearer {self.resend_api_key}",
-                "Content-Type": "application/json"
-            }
-            
-            # Note: Resend requires a verified sender domain or 'onboarding@resend.dev' for testing.
-            # If user has their own domain, they should set RESEND_FROM_EMAIL.
-            # Defaults to onboarding for testing.
-            from_email = os.getenv("RESEND_FROM_EMAIL", "onboarding@resend.dev")
-            
-            payload = {
-                "from": f"Audit Agent <{from_email}>",
-                "to": [recipient_email],
-                "subject": subject,
-                "html": html_body
-            }
-            
-            response = httpx.post(url, headers=headers, json=payload, timeout=10.0)
-            
-            if response.status_code in (200, 201):
-                resp_data = response.json()
-                print(f"[Email DEBUG] Resend Response: {resp_data}")
-                return {
-                    "success": True,
-                    "message": f"Email sent via Resend API to {recipient_email}",
-                    "sent": True,
-                    "provider": "resend",
-                    "resend_id": resp_data.get("id")
-                }
-            else:
-                return {
-                    "success": False,
-                    "message": f"Resend API Error: {response.text}",
-                    "error": response.text,
-                    "sent": False
-                }
-        except Exception as e:
-            return {
-                "success": False,
-                "message": f"Resend critical error: {str(e)}",
-                "error": str(e),
-                "sent": False
-            }
     
     def send_analysis_report(
         self,
@@ -264,22 +206,6 @@ class EmailService:
     ) -> Dict[str, Any]:
         """
         Send fraud analysis report via email.
-        
-        Args:
-            recipient_email: Recipient email address
-            risk_level: Risk level (Low/Medium/High)
-            summary: Executive summary
-            total_flagged_amount: Total flagged amount
-            flags: List of fraud flags
-            recommendations: List of recommendations
-            visualizations: Optional dict of visualization file paths
-            document_name: Optional document name
-            
-        Returns:
-            Dict with success status and message
-            
-        Raises:
-            Exception: If email sending fails (caller should handle)
         """
         # Check if service is configured
         if not self.is_configured:
@@ -305,12 +231,6 @@ class EmailService:
                 recommendations=recommendations,
                 document_name=document_name
             )
-            
-            # OPTION 1: Resend API (Preferred if configured)
-            if self.resend_api_key:
-                # Note: Visualizations/Attachments not supported in this simple Resend implementation yet
-                # but getting the HTML report is the priority.
-                return self._send_via_resend(recipient_email, msg['Subject'], html_body)
             
             # Attach HTML
             msg.attach(MIMEText(html_body, 'html'))
