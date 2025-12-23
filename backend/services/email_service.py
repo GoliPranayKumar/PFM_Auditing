@@ -227,11 +227,14 @@ class EmailService:
             response = httpx.post(url, headers=headers, json=payload, timeout=10.0)
             
             if response.status_code in (200, 201):
+                resp_data = response.json()
+                print(f"[Email DEBUG] Resend Response: {resp_data}")
                 return {
                     "success": True,
                     "message": f"Email sent via Resend API to {recipient_email}",
                     "sent": True,
-                    "provider": "resend"
+                    "provider": "resend",
+                    "resend_id": resp_data.get("id")
                 }
             else:
                 return {
