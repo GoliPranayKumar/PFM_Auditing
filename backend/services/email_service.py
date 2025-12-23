@@ -275,7 +275,19 @@ class EmailService:
             safe_user = f"{self.gmail_user[:3]}..." if self.gmail_user else "None"
             pass_len = len(self.gmail_password) if self.gmail_password else 0
             print(f"[Email DEBUG] Configured User: {safe_user}, Pass Len: {pass_len}")
-            print(f"[Email] Connecting to {self.smtp_server}:{self.smtp_port}...")
+            
+            # FORCE IPv4: Resolve hostname to IPv4 address to avoid [Errno 101] Network is unreachable
+            # This happens when Docker/Render tries IPv6 but lacks connectivity
+            import socket
+            try:
+                # Get the first IPv4 address (AF_INET)
+                smtp_host_ip = socket.getaddrinfo(self.smtp_server, self.smtp_port, family=socket.AF_INET)[0][4][0]
+                print(f"[Email DEBUG] Resolved {self.smtp_server} to IPv4: {smtp_host_ip}")
+            except Exception as e:
+                print(f"[Email DEBUG] DNS resolution failed: {e}")
+                smtp_host_ip = self.smtp_server # Fallback to hostname
+            
+            print(f"[Email] Connecting to {self.smtp_server} ({smtp_host_ip}):{self.smtp_port}...")
             
             timestamp_start = datetime.now()
             
@@ -286,7 +298,14 @@ class EmailService:
             if self.smtp_port == 465:
                 # Use implicit SSL (Port 465)
                 try:
-                    server = smtplib.SMTP_SSL(self.smtp_server, self.smtp_port, timeout=30)
+                    # Note: We pass the IP to connect, but might need to pass hostname for SSL cert verification?
+                    # smtplib doesn't easily let us separate connect host from cert host.
+                    # Usually passing the hostname is better IF IPv6 works. 
+                    # But since we have IPv6 issues, we try explicit IP. 
+                    # Ideally we'd use source_address param but accessing OS level is tricky.
+                    # OPTION B: Let's try passing IP. If SSL verify fails, we know connectivity works at least.
+                    
+                    server = smtplib.SMTP_SSL(smtp_host_ip, self.smtp_port, timeout=30)
                     server.set_debuglevel(1)  # Enable verbose SMTP logging
                     print(f"[Email] Connected (SSL). Logging in as {self.gmail_user}...")
                     server.login(self.gmail_user, self.gmail_password)
@@ -298,7 +317,7 @@ class EmailService:
                      raise e
             else:
                 # Use explicit SSL/STARTTLS (Port 587 or others)
-                with smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=30) as server:
+                with smtplib.SMTP(smtp_host_ip, self.smtp_port, timeout=30) as server:
 
                     server.set_debuglevel(1)  # Enable verbose SMTP logging
                     print(f"[Email] Connected. Starting TLS...")
