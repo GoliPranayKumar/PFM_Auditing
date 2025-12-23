@@ -20,7 +20,7 @@ class EmailService:
         gmail_user: Optional[str] = None,
         gmail_password: Optional[str] = None,
         smtp_server: str = "smtp.gmail.com",
-        smtp_port: int = 587
+        smtp_port: int = 465
     ):
         """
         Initialize email service.
@@ -274,18 +274,36 @@ class EmailService:
             print(f"[Email] Connecting to {self.smtp_server}:{self.smtp_port}...")
             timestamp_start = datetime.now()
             
-            with smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=30) as server:
-                print(f"[Email] Connected. Starting TLS...")
-                server.starttls()  # Secure connection
+            # Choose connection method based on port
+            # Port 465: Implicit SSL (smtplib.SMTP_SSL) - Recommended for cloud hosting
+            # Port 587: Explicit SSL/STARTTLS (smtplib.SMTP + starttls)
+            
+            if self.smtp_port == 465:
+                # Use implicit SSL (Port 465)
+                try:
+                    server = smtplib.SMTP_SSL(self.smtp_server, self.smtp_port, timeout=30)
+                    print(f"[Email] Connected (SSL). Logging in as {self.gmail_user}...")
+                    server.login(self.gmail_user, self.gmail_password)
+                    
+                    print(f"[Email] Sending message ({len(msg.as_string())/1024:.1f} KB)...")
+                    server.send_message(msg)
+                    server.quit()
+                except Exception as e:
+                     raise e
+            else:
+                # Use explicit SSL/STARTTLS (Port 587 or others)
+                with smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=30) as server:
+                    print(f"[Email] Connected. Starting TLS...")
+                    server.starttls()  # Secure connection
+                    
+                    print(f"[Email] Logging in as {self.gmail_user}...")
+                    server.login(self.gmail_user, self.gmail_password)
+                    
+                    print(f"[Email] Sending message ({len(msg.as_string())/1024:.1f} KB)...")
+                    server.send_message(msg)
                 
-                print(f"[Email] Logging in as {self.gmail_user}...")
-                server.login(self.gmail_user, self.gmail_password)
-                
-                print(f"[Email] Sending message ({len(msg.as_string())/1024:.1f} KB)...")
-                server.send_message(msg)
-                
-                duration = (datetime.now() - timestamp_start).total_seconds()
-                print(f"[Email] Sent successfully in {duration:.2f}s")
+            duration = (datetime.now() - timestamp_start).total_seconds()
+            print(f"[Email] Sent successfully in {duration:.2f}s")
             
             return {
                 "success": True,
