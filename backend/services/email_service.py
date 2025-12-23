@@ -271,10 +271,21 @@ class EmailService:
                         print(f"Warning: Failed to attach {viz_name}: {e}")
             
             # Send email
-            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
+            print(f"[Email] Connecting to {self.smtp_server}:{self.smtp_port}...")
+            timestamp_start = datetime.now()
+            
+            with smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=30) as server:
+                print(f"[Email] Connected. Starting TLS...")
                 server.starttls()  # Secure connection
+                
+                print(f"[Email] Logging in as {self.gmail_user}...")
                 server.login(self.gmail_user, self.gmail_password)
+                
+                print(f"[Email] Sending message ({len(msg.as_string())/1024:.1f} KB)...")
                 server.send_message(msg)
+                
+                duration = (datetime.now() - timestamp_start).total_seconds()
+                print(f"[Email] Sent successfully in {duration:.2f}s")
             
             return {
                 "success": True,
@@ -286,13 +297,23 @@ class EmailService:
             }
             
         except smtplib.SMTPAuthenticationError as e:
+            print(f"[Email] Authentication Error: {e}")
             return {
                 "success": False,
                 "message": "Gmail authentication failed. Check GMAIL_USER and GMAIL_APP_PASSWORD.",
                 "error": str(e),
                 "sent": False
             }
+        except smtplib.SMTPConnectError as e:
+            print(f"[Email] Connection Error: {e}")
+            return {
+                "success": False,
+                "message": f"Could not connect to SMTP server: {e}",
+                "error": str(e),
+                "sent": False
+            }
         except smtplib.SMTPException as e:
+            print(f"[Email] SMTP Error: {e}")
             return {
                 "success": False,
                 "message": f"SMTP error: {str(e)}",
@@ -300,6 +321,7 @@ class EmailService:
                 "sent": False
             }
         except Exception as e:
+            print(f"[Email] General Error: {e}")
             return {
                 "success": False,
                 "message": f"Failed to send email: {str(e)}",
