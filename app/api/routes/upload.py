@@ -209,6 +209,10 @@ async def process_document_task(
             analysis=audit_response
         ).model_dump()
         
+        # Add explicit email debug info to the top-level result
+        RESULTS_STORE[request_id]["email_status"] = email_status
+
+        
         logger.info(f"[Request {request_id}] 🏁 Processing task completed successfully")
 
     except Exception as e:
