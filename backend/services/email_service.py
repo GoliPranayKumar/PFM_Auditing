@@ -20,7 +20,7 @@ class EmailService:
         gmail_user: Optional[str] = None,
         gmail_password: Optional[str] = None,
         smtp_server: str = "smtp.gmail.com",
-        smtp_port: int = 465
+        smtp_port: int = 587
     ):
         """
         Initialize email service.
