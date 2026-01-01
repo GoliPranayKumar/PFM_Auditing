@@ -235,9 +235,9 @@ class EmailService:
                                 })
                 
                 params = {
-                    "from": "Audit Agent <onboarding@resend.dev>", # Default testing domain
+                    "from": "PFM Analyzer <onboarding@resend.dev>", # Neutral sender name
                     "to": [recipient_email],
-                    "subject": subject,
+                    "subject": f"Financial Analysis Report - {document_name or 'Document'}", # Neutral subject
                     "html": html_body,
                     "attachments": attachments
                 }
