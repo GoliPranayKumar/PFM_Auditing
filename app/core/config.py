@@ -70,7 +70,15 @@ class Settings(BaseSettings):
     )
     
     # ==========================================
-    # Gmail SMTP Configuration (OPTIONAL for email features)
+    # Resend Configuration (NEW - Preferred over Gmail)
+    # ==========================================
+    resend_api_key: Optional[str] = Field(
+        default=None,
+        description="Resend API key for sending reports"
+    )
+    
+    # ==========================================
+    # Gmail SMTP Configuration (LEGACY)
     # ==========================================
     gmail_user: Optional[str] = Field(
         default=None,
@@ -118,6 +126,19 @@ class Settings(BaseSettings):
             and self.groq_api_key != "your_groq_api_key_here"
         )
     
+    def is_resend_enabled(self) -> bool:
+        """
+        Check if Resend email sending is enabled.
+        
+        Returns:
+            True if Resend API key is configured
+        """
+        return (
+            self.resend_api_key is not None 
+            and self.resend_api_key.strip() != ""
+            and self.resend_api_key != "re_123456789"
+        )
+    
     def is_gmail_enabled(self) -> bool:
         """
         Check if Gmail email sending is enabled.
@@ -133,6 +154,10 @@ class Settings(BaseSettings):
             and self.gmail_app_password.strip() != ""
             and self.gmail_app_password != "your_gmail_app_password_here"
         )
+        
+    def is_email_enabled(self) -> bool:
+        """Check if ANY email service is enabled."""
+        return self.is_resend_enabled() or self.is_gmail_enabled()
     
     def get_groq_key_masked(self) -> str:
         """
@@ -149,16 +174,13 @@ class Settings(BaseSettings):
             return f"{key[:4]}...{key[-4:]}"
         return "***"
     
-    def get_gmail_user_safe(self) -> str:
-        """
-        Get Gmail user for logging (safe to log).
-        
-        Returns:
-            Gmail address or "Not configured"
-        """
-        if not self.is_gmail_enabled():
-            return "Not configured"
-        return self.gmail_user
+    def get_email_provider(self) -> str:
+        """Get the active email provider name."""
+        if self.is_resend_enabled():
+            return "Resend"
+        if self.is_gmail_enabled():
+            return "Gmail SMTP"
+        return "None"
     
     def validate_startup_config(self) -> dict:
         """
@@ -169,7 +191,7 @@ class Settings(BaseSettings):
         """
         status = {
             "groq_enabled": self.is_groq_enabled(),
-            "gmail_enabled": self.is_gmail_enabled(),
+            "email_provider": self.get_email_provider(),
             "warnings": [],
             "errors": []
         }
@@ -180,10 +202,10 @@ class Settings(BaseSettings):
                 "Groq API key not configured - AI analysis features will be disabled"
             )
         
-        # Check Gmail (optional, so just a warning)
-        if not self.is_gmail_enabled():
+        # Check Email
+        if not self.is_email_enabled():
             status["warnings"].append(
-                "Gmail credentials not configured - email reports will be disabled"
+                "No email credentials configured (Resend or Gmail) - email reports will be disabled"
             )
         
         return status
@@ -208,6 +230,18 @@ def get_groq_api_key() -> Optional[str]:
     """
     if settings.is_groq_enabled():
         return settings.groq_api_key
+    return None
+
+
+def get_resend_api_key() -> Optional[str]:
+    """
+    Get Resend API key if configured.
+    
+    Returns:
+        Resend API key or None
+    """
+    if settings.is_resend_enabled():
+        return settings.resend_api_key
     return None
 
 

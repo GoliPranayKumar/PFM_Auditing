@@ -13,45 +13,42 @@ from datetime import datetime
 
 
 class EmailService:
-    """Service for sending fraud analysis reports via email."""
+    """
+    Service for sending fraud analysis reports via Email.
+    Supports:
+    1. Resend API (Preferred - HTTP based, works everywhere)
+    2. Gmail SMTP (Legacy - Port blocking issues on cloud)
+    """
     
-    def __init__(
-        self,
-        gmail_user: Optional[str] = None,
-        gmail_password: Optional[str] = None,
-        smtp_server: str = "smtp.gmail.com",
-        smtp_port: int = 587
-    ):
-        """
-        Initialize email service.
+    def __init__(self):
+        """Initialize email service with configuration."""
+        # Use centralized configuration
+        from app.core.config import get_gmail_credentials, get_resend_api_key
+        import resend
         
-        Args:
-            gmail_user: Gmail email address (from config if not provided)
-            gmail_password: Gmail app password (from config if not provided)
-            smtp_server: SMTP server address
-            smtp_port: SMTP server port
-        """
-        # Use centralized configuration (NEVER use os.getenv directly)
-        from app.core.config import get_gmail_credentials
-        
-        # Try to get from parameters first, then from config
-        if gmail_user and gmail_password:
-            self.gmail_user = gmail_user
-            self.gmail_password = gmail_password
+        # 1. Try Resend (Priority)
+        self.resend_api_key = get_resend_api_key()
+        if self.resend_api_key:
+            resend.api_key = self.resend_api_key
+            self.provider = "resend"
+            self.is_configured = True
+            print(f"[Email] Service configured using Resend API (Trusted)")
+            
+        # 2. Fallback to Gmail
         else:
             credentials = get_gmail_credentials()
             if credentials:
                 self.gmail_user, self.gmail_password = credentials
+                self.provider = "gmail"
+                self.is_configured = True
+                self.smtp_server = "smtp.gmail.com"
+                self.smtp_port = 587
+                print(f"[Email] Service configured using Gmail SMTP (Legacy)")
             else:
-                self.gmail_user = None
-                self.gmail_password = None
-        
-        self.smtp_server = smtp_server
-        self.smtp_port = smtp_port
-        
-        # Check if credentials are configured
-        self.is_configured = bool(self.gmail_user and self.gmail_password)
-    
+                self.provider = None
+                self.is_configured = False
+                print(f"[Email] Service NOT configured (No Resend Key or Gmail Credentials)")
+
     def _create_html_report(
         self,
         risk_level: str,
@@ -63,17 +60,7 @@ class EmailService:
     ) -> str:
         """
         Create HTML email body with analysis results.
-        
-        Args:
-            risk_level: Risk level (Low/Medium/High)
-            summary: Executive summary
-            total_flagged_amount: Total flagged amount
-            flags: List of fraud flags
-            recommendations: List of recommendations
-            document_name: Optional document name
-            
-        Returns:
-            HTML string
+        (Same HTML generation logic as before)
         """
         # Risk level color
         risk_colors = {
@@ -193,7 +180,6 @@ class EmailService:
         
         return html
     
-    
     def send_analysis_report(
         self,
         recipient_email: str,
@@ -206,41 +192,99 @@ class EmailService:
         document_name: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Send fraud analysis report via email.
+        Send fraud analysis report via configure provider (Resend or Gmail).
         """
-        # Check if service is configured
         if not self.is_configured:
-            print("[Email] Service not configured (GMAIL_USER or GMAIL_APP_PASSWORD missing).")
             return {
                 "success": False,
-                "message": "Email service not configured. Set GMAIL_USER and GMAIL_APP_PASSWORD in environment variables.",
+                "message": "No email service configured (Set RESEND_API_KEY or Gmail creds)",
                 "sent": False
             }
-        
-        try:
-            print(f"[Email] Starting email send process to {recipient_email}...")
             
+        # Generate content
+        html_body = self._create_html_report(
+            risk_level=risk_level,
+            summary=summary,
+            total_flagged_amount=total_flagged_amount,
+            flags=flags,
+            recommendations=recommendations,
+            document_name=document_name
+        )
+        
+        subject = f"🚨 Fraud Analysis Report - {risk_level} Risk{f' - {document_name}' if document_name else ''}"
+        
+        # ----------------------------------------
+        # WAY 1: Use Resend (Preferred)
+        # ----------------------------------------
+        if self.provider == "resend":
+            try:
+                import resend
+                print(f"[Email] Sending via Resend API to {recipient_email}...")
+                
+                # Prepare attachments for Resend (list of dicts with content as int list)
+                attachments = []
+                if visualizations:
+                    for viz_name, viz_path in visualizations.items():
+                        path = Path(viz_path)
+                        if path.exists():
+                            with open(path, 'rb') as f:
+                                file_content = list(f.read()) # Convert bytes to list of ints
+                                attachments.append({
+                                    "filename": f"{viz_name}_{datetime.now().strftime('%Y%m%d')}.png",
+                                    "content": file_content
+                                })
+                
+                params = {
+                    "from": "Audit Agent <onboarding@resend.dev>", # Default testing domain
+                    "to": [recipient_email],
+                    "subject": subject,
+                    "html": html_body,
+                    "attachments": attachments
+                }
+                
+                # NOTE: In Resend free tier, you can only send to the email you signed up with!
+                # Unless you verify a domain.
+                
+                r = resend.Emails.send(params)
+                print(f"[Email] Resend API Response: {r}")
+                
+                return {
+                    "success": True,
+                    "message": "Email sent via Resend API",
+                    "sent": True,
+                    "provider": "resend",
+                    "response": r
+                }
+                
+            except Exception as e:
+                print(f"[Email] ❌ Resend API Error: {e}")
+                return {
+                    "success": False, 
+                    "message": f"Resend API failed: {str(e)}", 
+                    "error": str(e)
+                }
+
+        # ----------------------------------------
+        # WAY 2: Use Gmail SMTP (Legacy)
+        # ----------------------------------------
+        elif self.provider == "gmail":
+            return self._send_via_gmail(recipient_email, subject, html_body, visualizations)
+            
+        return {"success": False, "message": "Unknown provider", "sent": False}
+
+    def _send_via_gmail(self, recipient_email, subject, html_body, visualizations):
+        """Internal method to send via Gmail SMTP."""
+        try:
+            print(f"[Email] Sending via Gmail SMTP to {recipient_email}...")
             # Create message
             msg = MIMEMultipart('related')
             msg['From'] = self.gmail_user
             msg['To'] = recipient_email
-            msg['Subject'] = f"🚨 Fraud Analysis Report - {risk_level} Risk{f' - {document_name}' if document_name else ''}"
+            msg['Subject'] = subject
             
-            # Create HTML body
-            html_body = self._create_html_report(
-                risk_level=risk_level,
-                summary=summary,
-                total_flagged_amount=total_flagged_amount,
-                flags=flags,
-                recommendations=recommendations,
-                document_name=document_name
-            )
-            
-            # Attach HTML
             msg.attach(MIMEText(html_body, 'html'))
             
-            # Attach visualizations if provided
-            attached_files = []
+            # Attach visualizations
             if visualizations:
                 for viz_name, viz_path in visualizations.items():
                     try:
@@ -248,146 +292,36 @@ class EmailService:
                         if path.exists():
                             with open(path, 'rb') as f:
                                 img = MIMEImage(f.read())
-                                img.add_header(
-                                    'Content-Disposition',
-                                    'attachment',
-                                    filename=f"{viz_name}_{datetime.now().strftime('%Y%m%d')}.png"
-                                )
+                                img.add_header('Content-Disposition', 'attachment', 
+                                             filename=f"{viz_name}.png")
                                 msg.attach(img)
-                                attached_files.append(viz_name)
                     except Exception as e:
-                        print(f"[Email] Warning: Failed to attach {viz_name}: {e}")
+                        print(f"Attachment error: {e}")
             
-            # Send email
-            # DEBUG: Check what credentials we actually have (safe mask)
-            safe_user = f"{self.gmail_user[:3]}..." if self.gmail_user else "None"
-            print(f"[Email DEBUG] Configured User: {safe_user} | Server: {self.smtp_server}:{self.smtp_port}")
-            
-            # DNS Resolution (Critical for Render/Docker)
+            # Connect
             import socket
             smtp_host_ip = self.smtp_server
             try:
-                # Force IPv4 resolution to avoid IPv6 timeouts in some containers
                 addr_info = socket.getaddrinfo(self.smtp_server, self.smtp_port, family=socket.AF_INET)
-                if addr_info:
-                    smtp_host_ip = addr_info[0][4][0]
-                    print(f"[Email DEBUG] Resolved {self.smtp_server} to IPv4: {smtp_host_ip}")
-            except Exception as e:
-                print(f"[Email DEBUG] DNS resolution failed (using hostname): {e}")
+                if addr_info: smtp_host_ip = addr_info[0][4][0]
+            except: pass
             
-            # Connect
-            timestamp_start = datetime.now()
-            
-            if self.smtp_port == 465:
-                # Implicit SSL
-                print(f"[Email] Connecting via SMTP_SSL to {smtp_host_ip}:{self.smtp_port}...")
-                with smtplib.SMTP_SSL(host=smtp_host_ip, port=self.smtp_port, timeout=60) as server:
-                    # Debug logging (prints to stdout/stderr which Render captures)
-                    # server.set_debuglevel(1) 
-                    
-                    print(f"[Email] Connected (SSL). Logging in...")
-                    server.login(self.gmail_user, self.gmail_password)
-                    
-                    print(f"[Email] Sending message...")
-                    server.send_message(msg)
-            else:
-                # Explicit TLS (STARTTLS) - standard for Gmail port 587
-                print(f"[Email] Connecting via SMTP to {smtp_host_ip}:{self.smtp_port}...")
-                with smtplib.SMTP(host=smtp_host_ip, port=self.smtp_port, timeout=60) as server:
-                    # server.set_debuglevel(1)
-                    
-                    print(f"[Email] Connected. Sending EHLO...")
-                    server.ehlo()
-                    
-                    print(f"[Email] Starting TLS...")
-                    server.starttls()
-                    
-                    print(f"[Email] Sending EHLO (post-TLS)...")
-                    server.ehlo()
-                    
-                    print(f"[Email] Logging in...")
-                    server.login(self.gmail_user, self.gmail_password)
-                    
-                    print(f"[Email] Sending message...")
-                    server.send_message(msg)
+            with smtplib.SMTP(host=smtp_host_ip, port=self.smtp_port, timeout=120) as server:
+                server.ehlo()
+                server.starttls()
+                server.ehlo()
+                server.login(self.gmail_user, self.gmail_password)
+                server.send_message(msg)
                 
-            duration = (datetime.now() - timestamp_start).total_seconds()
-            print(f"[Email] Sent successfully in {duration:.2f}s")
+            print(f"[Email] Sent via Gmail successfully")
+            return {"success": True, "message": "Sent via Gmail", "sent": True, "provider": "gmail"}
             
-            return {
-                "success": True,
-                "message": f"Email sent successfully to {recipient_email}",
-                "sent": True,
-                "recipient": recipient_email,
-                "attachments": attached_files,
-                "timestamp": datetime.now().isoformat()
-            }
-            
-        except smtplib.SMTPAuthenticationError as e:
-            print(f"[Email] ❌ Authentication Error: {e}")
-            print("[Email] Hint: Check GMAIL_USER and GMAIL_APP_PASSWORD. Ensure App Password is used, not login password.")
-            return {
-                "success": False,
-                "message": "Gmail authentication failed.",
-                "error": str(e),
-                "sent": False
-            }
-        except smtplib.SMTPConnectError as e:
-            print(f"[Email] ❌ Connection Error: {e}")
-            print("[Email] Hint: Render might be blocking outgoing SMTP. Or DNS issue.")
-            return {
-                "success": False,
-                "message": f"Could not connect to SMTP server: {e}",
-                "error": str(e),
-                "sent": False
-            }
-        except smtplib.SMTPException as e:
-            print(f"[Email] ❌ SMTP Error: {e}")
-            return {
-                "success": False,
-                "message": f"SMTP error: {str(e)}",
-                "error": str(e),
-                "sent": False
-            }
         except Exception as e:
-            print(f"[Email] ❌ General Error: {e}")
-            import traceback
-            traceback.print_exc()
-            return {
-                "success": False,
-                "message": f"Failed to send email: {str(e)}",
-                "error": str(e),
-                "sent": False
-            }
-    
-    async def send_analysis_report_async(
-        self,
-        recipient_email: str,
-        risk_level: str,
-        summary: str,
-        total_flagged_amount: float,
-        flags: List[Dict[str, Any]],
-        recommendations: List[str],
-        visualizations: Optional[Dict[str, str]] = None,
-        document_name: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """
-        Async version of send_analysis_report.
-        
-        Note: Actually synchronous but provides async interface for compatibility.
-        For true async, consider using aiosmtplib.
-        """
-        return self.send_analysis_report(
-            recipient_email=recipient_email,
-            risk_level=risk_level,
-            summary=summary,
-            total_flagged_amount=total_flagged_amount,
-            flags=flags,
-            recommendations=recommendations,
-            visualizations=visualizations,
-            document_name=document_name
-        )
+            print(f"[Email] ❌ Gmail SMTP Error: {e}")
+            return {"success": False, "message": f"Gmail failed: {e}", "error": str(e)}
 
+    async def send_analysis_report_async(self, *args, **kwargs):
+        """Async compatibility wrapper."""
+        return self.send_analysis_report(*args, **kwargs)
 
-# Global service instance
 email_service = EmailService()
