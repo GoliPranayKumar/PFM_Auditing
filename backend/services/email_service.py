@@ -281,7 +281,7 @@ class EmailService:
             if self.smtp_port == 465:
                 # Implicit SSL
                 print(f"[Email] Connecting via SMTP_SSL to {smtp_host_ip}:{self.smtp_port}...")
-                with smtplib.SMTP_SSL(host=smtp_host_ip, port=self.smtp_port, timeout=30) as server:
+                with smtplib.SMTP_SSL(host=smtp_host_ip, port=self.smtp_port, timeout=60) as server:
                     # Debug logging (prints to stdout/stderr which Render captures)
                     # server.set_debuglevel(1) 
                     
@@ -293,7 +293,7 @@ class EmailService:
             else:
                 # Explicit TLS (STARTTLS) - standard for Gmail port 587
                 print(f"[Email] Connecting via SMTP to {smtp_host_ip}:{self.smtp_port}...")
-                with smtplib.SMTP(host=smtp_host_ip, port=self.smtp_port, timeout=30) as server:
+                with smtplib.SMTP(host=smtp_host_ip, port=self.smtp_port, timeout=60) as server:
                     # server.set_debuglevel(1)
                     
                     print(f"[Email] Connected. Sending EHLO...")
