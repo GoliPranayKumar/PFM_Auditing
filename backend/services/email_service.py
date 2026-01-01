@@ -193,6 +193,7 @@ class EmailService:
         
         return html
     
+    
     def send_analysis_report(
         self,
         recipient_email: str,
@@ -209,6 +210,7 @@ class EmailService:
         """
         # Check if service is configured
         if not self.is_configured:
+            print("[Email] Service not configured (GMAIL_USER or GMAIL_APP_PASSWORD missing).")
             return {
                 "success": False,
                 "message": "Email service not configured. Set GMAIL_USER and GMAIL_APP_PASSWORD in environment variables.",
@@ -216,6 +218,8 @@ class EmailService:
             }
         
         try:
+            print(f"[Email] Starting email send process to {recipient_email}...")
+            
             # Create message
             msg = MIMEMultipart('related')
             msg['From'] = self.gmail_user
@@ -252,65 +256,59 @@ class EmailService:
                                 msg.attach(img)
                                 attached_files.append(viz_name)
                     except Exception as e:
-                        print(f"Warning: Failed to attach {viz_name}: {e}")
+                        print(f"[Email] Warning: Failed to attach {viz_name}: {e}")
             
             # Send email
-            # DEBUG: Check what credentials we actually have
+            # DEBUG: Check what credentials we actually have (safe mask)
             safe_user = f"{self.gmail_user[:3]}..." if self.gmail_user else "None"
-            pass_len = len(self.gmail_password) if self.gmail_password else 0
-            print(f"[Email DEBUG] Configured User: {safe_user}, Pass Len: {pass_len}")
+            print(f"[Email DEBUG] Configured User: {safe_user} | Server: {self.smtp_server}:{self.smtp_port}")
             
-            # FORCE IPv4: Resolve hostname to IPv4 address to avoid [Errno 101] Network is unreachable
-            # This happens when Docker/Render tries IPv6 but lacks connectivity
+            # DNS Resolution (Critical for Render/Docker)
             import socket
+            smtp_host_ip = self.smtp_server
             try:
-                # Get the first IPv4 address (AF_INET)
-                smtp_host_ip = socket.getaddrinfo(self.smtp_server, self.smtp_port, family=socket.AF_INET)[0][4][0]
-                print(f"[Email DEBUG] Resolved {self.smtp_server} to IPv4: {smtp_host_ip}")
+                # Force IPv4 resolution to avoid IPv6 timeouts in some containers
+                addr_info = socket.getaddrinfo(self.smtp_server, self.smtp_port, family=socket.AF_INET)
+                if addr_info:
+                    smtp_host_ip = addr_info[0][4][0]
+                    print(f"[Email DEBUG] Resolved {self.smtp_server} to IPv4: {smtp_host_ip}")
             except Exception as e:
-                print(f"[Email DEBUG] DNS resolution failed: {e}")
-                smtp_host_ip = self.smtp_server # Fallback to hostname
+                print(f"[Email DEBUG] DNS resolution failed (using hostname): {e}")
             
-            print(f"[Email] Connecting to {self.smtp_server} ({smtp_host_ip}):{self.smtp_port}...")
-            
+            # Connect
             timestamp_start = datetime.now()
             
-            # Choose connection method based on port
-            # Port 465: Implicit SSL (smtplib.SMTP_SSL) - Recommended for cloud hosting
-            # Port 587: Explicit SSL/STARTTLS (smtplib.SMTP + starttls)
-            
             if self.smtp_port == 465:
-                # Use implicit SSL (Port 465)
-                try:
-                    # Note: We pass the IP to connect, but might need to pass hostname for SSL cert verification?
-                    # smtplib doesn't easily let us separate connect host from cert host.
-                    # Usually passing the hostname is better IF IPv6 works. 
-                    # But since we have IPv6 issues, we try explicit IP. 
-                    # Ideally we'd use source_address param but accessing OS level is tricky.
-                    # OPTION B: Let's try passing IP. If SSL verify fails, we know connectivity works at least.
+                # Implicit SSL
+                print(f"[Email] Connecting via SMTP_SSL to {smtp_host_ip}:{self.smtp_port}...")
+                with smtplib.SMTP_SSL(host=smtp_host_ip, port=self.smtp_port, timeout=30) as server:
+                    # Debug logging (prints to stdout/stderr which Render captures)
+                    # server.set_debuglevel(1) 
                     
-                    server = smtplib.SMTP_SSL(smtp_host_ip, self.smtp_port, timeout=30)
-                    server.set_debuglevel(1)  # Enable verbose SMTP logging
-                    print(f"[Email] Connected (SSL). Logging in as {self.gmail_user}...")
+                    print(f"[Email] Connected (SSL). Logging in...")
                     server.login(self.gmail_user, self.gmail_password)
                     
-                    print(f"[Email] Sending message ({len(msg.as_string())/1024:.1f} KB)...")
+                    print(f"[Email] Sending message...")
                     server.send_message(msg)
-                    server.quit()
-                except Exception as e:
-                     raise e
             else:
-                # Use explicit SSL/STARTTLS (Port 587 or others)
-                with smtplib.SMTP(smtp_host_ip, self.smtp_port, timeout=30) as server:
-
-                    server.set_debuglevel(1)  # Enable verbose SMTP logging
-                    print(f"[Email] Connected. Starting TLS...")
-                    server.starttls()  # Secure connection
+                # Explicit TLS (STARTTLS) - standard for Gmail port 587
+                print(f"[Email] Connecting via SMTP to {smtp_host_ip}:{self.smtp_port}...")
+                with smtplib.SMTP(host=smtp_host_ip, port=self.smtp_port, timeout=30) as server:
+                    # server.set_debuglevel(1)
                     
-                    print(f"[Email] Logging in as {self.gmail_user}...")
+                    print(f"[Email] Connected. Sending EHLO...")
+                    server.ehlo()
+                    
+                    print(f"[Email] Starting TLS...")
+                    server.starttls()
+                    
+                    print(f"[Email] Sending EHLO (post-TLS)...")
+                    server.ehlo()
+                    
+                    print(f"[Email] Logging in...")
                     server.login(self.gmail_user, self.gmail_password)
                     
-                    print(f"[Email] Sending message ({len(msg.as_string())/1024:.1f} KB)...")
+                    print(f"[Email] Sending message...")
                     server.send_message(msg)
                 
             duration = (datetime.now() - timestamp_start).total_seconds()
@@ -326,15 +324,17 @@ class EmailService:
             }
             
         except smtplib.SMTPAuthenticationError as e:
-            print(f"[Email] Authentication Error: {e}")
+            print(f"[Email] ❌ Authentication Error: {e}")
+            print("[Email] Hint: Check GMAIL_USER and GMAIL_APP_PASSWORD. Ensure App Password is used, not login password.")
             return {
                 "success": False,
-                "message": "Gmail authentication failed. Check GMAIL_USER and GMAIL_APP_PASSWORD.",
+                "message": "Gmail authentication failed.",
                 "error": str(e),
                 "sent": False
             }
         except smtplib.SMTPConnectError as e:
-            print(f"[Email] Connection Error: {e}")
+            print(f"[Email] ❌ Connection Error: {e}")
+            print("[Email] Hint: Render might be blocking outgoing SMTP. Or DNS issue.")
             return {
                 "success": False,
                 "message": f"Could not connect to SMTP server: {e}",
@@ -342,7 +342,7 @@ class EmailService:
                 "sent": False
             }
         except smtplib.SMTPException as e:
-            print(f"[Email] SMTP Error: {e}")
+            print(f"[Email] ❌ SMTP Error: {e}")
             return {
                 "success": False,
                 "message": f"SMTP error: {str(e)}",
@@ -350,7 +350,9 @@ class EmailService:
                 "sent": False
             }
         except Exception as e:
-            print(f"[Email] General Error: {e}")
+            print(f"[Email] ❌ General Error: {e}")
+            import traceback
+            traceback.print_exc()
             return {
                 "success": False,
                 "message": f"Failed to send email: {str(e)}",
