@@ -54,16 +54,20 @@ async def lifespan(app: FastAPI):
         logger.warning("   Action: Set GROQ_API_KEY in .env file to enable")
     
     # ========================================
-    # Gmail SMTP Status
+    # Email Service Status
     # ========================================
-    if config_status["gmail_enabled"]:
-        logger.info("✅ Gmail email sending enabled")
+    email_provider = config_status["email_provider"]
+    if email_provider == "Resend":
+        logger.info("✅ Email sending enabled via Resend API")
+        logger.info(f"   Provider: Resend (Preferred)")
+    elif email_provider == "Gmail SMTP":
+        logger.info("✅ Email sending enabled via Gmail SMTP")
         logger.info(f"   Gmail User: {settings.get_gmail_user_safe()}")
     else:
-        logger.warning("ℹ️  Gmail email sending disabled")
-        logger.warning("   Reason: Gmail credentials not configured")
+        logger.warning("ℹ️  Email sending disabled")
+        logger.warning("   Reason: No email credentials configured")
         logger.warning("   Impact: Email reports will not be sent")
-        logger.warning("   Action: Set GMAIL_USER and GMAIL_APP_PASSWORD to enable (optional)")
+        logger.warning("   Action: Set RESEND_API_KEY (Recommended) or GMAIL credentials")
     
     # ========================================
     # Warnings and Errors
